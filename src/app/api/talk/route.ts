@@ -3,17 +3,30 @@
 import { NextResponse } from "next/server";
 import { CartesiaClient } from "@cartesia/cartesia-js";
 import process from "node:process";
-import { writeFileSync } from "node:fs";
+import { transcribeAudio } from "@/lib/transcribeAudio";
 
-export async function GET() {
+export async function POST(request: Request) {
   try {
-    const apiKey = process.env.CARTESIA_API_KEY;
+    const CartesiaKey = process.env.CARTESIA_API_KEY;
 
-    if (!apiKey) {
+    if (!CartesiaKey) {
       return NextResponse.json({ error: "CARTESIA_API_KEY not set" }, { status: 500 });
     }
 
-    const client = new CartesiaClient({ apiKey });
+    const formData = await request.formData();
+    const audioFile = formData.get('file');
+
+
+    if (!audioFile || !(audioFile instanceof Blob)) {
+      return NextResponse.json({ error: "No audio file provided" }, { status: 400 });
+    }
+
+    const file = new File([audioFile], "audio.webm", { type: audioFile.type || "audio/webm" });
+    const userInput = await transcribeAudio(file);
+
+    console.log("Transcribed User Input:", userInput);
+
+    const client = new CartesiaClient({ apiKey: CartesiaKey });
 
     const response = await client.tts.bytes({
       modelId: "sonic-2",
@@ -29,8 +42,6 @@ export async function GET() {
         encoding: "pcm_f32le",
       },
     });
-
-    writeFileSync("sonic.wav", new Uint8Array(response));
 
     return new Response(response, {
       status: 200,
