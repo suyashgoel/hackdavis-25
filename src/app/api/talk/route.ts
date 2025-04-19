@@ -40,11 +40,12 @@ export async function POST(request: Request) {
 
     // now send this userInput to gpt 4 mayhbe, and get respone in chunks and send to cartesia
 
+    const prompt = "";
     const stream = new ReadableStream({
       async start(controller) {
         const completionStream = await openai.chat.completions.create({
           model: "gpt-4",
-          messages: [{ role: "user", content: userInput }],
+          messages: [{ role: "user", content: prompt + userInput }],
           stream: true,
         });
 
