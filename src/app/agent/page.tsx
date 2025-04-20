@@ -1,5 +1,7 @@
 "use client";
 import { useState, useRef, useEffect } from "react";
+import { VoiceChatButton } from "../components/VoiceChatButton";
+import Navbar from "../components/Navbar";
 
 export default function Home() {
   const [isRecording, setIsRecording] = useState(false);
@@ -13,6 +15,8 @@ export default function Home() {
     { role: "user" | "assistant"; content: string }[]
   >([]);
   const [locationInput, setLocationInput] = useState('');
+  const [locationSubmitted, setLocationSubmitted] = useState(false);
+
 
   const mediaRecorderRef = useRef<MediaRecorder | null>(null);
   const audioChunksRef = useRef<Blob[]>([]);
@@ -584,93 +588,59 @@ export default function Home() {
   );
 
   return (
-    <div className="flex flex-col items-center justify-center min-h-screen bg-gray-100 p-4">
-      <div className="bg-white rounded-lg shadow-md p-6 w-full max-w-md">
-        <h1 className="text-2xl font-bold mb-4 text-center">Voice Chat</h1>
+    <div className="relative flex flex-col items-center justify-center min-h-screen">
+      <Navbar />
+      <img
+        src="/bckgrndgrad.png"
+        alt="background gradient"
+        className="absolute bottom-0 z-0 w-full object-cover"
+      />
+      <img
+        src="/Numaframe1.png"
+        alt="Numaframe"
+        className="z-10 mb-4 w-140 object-contain"
+      />
+      <div className="z-10 text-black text-4xl font-inter mb-6">
+        Hi, how can I help you today?
+      </div>
 
-        <div className="flex justify-center mb-4">
-          <div className="text-lg font-medium text-center">
-            {status}
-            {mediaRecorderRef.current?.state === "recording" && (
-              <span className="ml-2 text-red-500">
-                {formatTime(recordingDuration)}
-              </span>
-            )}
-          </div>
-        </div>
+      <div className="z-10">
+        {!isRecording && !isProcessing && !locationSubmitted && (
+          <button
+            onClick={startConversation}
+            className="bg-blue-500 hover:bg-blue-600 text-white font-medium py-2 px-6 rounded-full focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-opacity-50 transition"
+          >
+            Start Conversation
+          </button>
+        )}
 
-        {(isRecording || isProcessing) && (
-          <div className="mb-4">
-            <div className="w-full bg-gray-200 rounded-full h-3 mb-1">
-              <div
-                className={`h-3 rounded-full ${
-                  volumeLevel > speechThreshold ? "bg-green-500" : "bg-blue-500"
-                }`}
-                style={{ width: `${Math.min(100, volumeLevel * 2)}%` }}
-              ></div>
-            </div>
-
-            <div className="w-full relative h-6 mb-2">
-              {/* Speech threshold marker */}
-              <div
-                className="absolute h-full border-l-2 border-red-500"
-                style={{ left: `${Math.min(100, speechThreshold * 2)}%` }}
-              ></div>
-              <div
-                className="absolute text-xs text-red-500 transform -translate-x-1/2"
-                style={{
-                  left: `${Math.min(100, speechThreshold * 2)}%`,
-                  top: "0px",
-                }}
-              >
-                Speech threshold
-              </div>
-            </div>
-
-            <div className="flex justify-between text-xs text-gray-500">
-              <span>Volume: {volumeLevel}</span>
-              <span>Background: {backgroundNoise}</span>
-              <span>Threshold: {speechThreshold}</span>
-            </div>
+        {(isRecording || isProcessing) && !locationSubmitted && (
+          <div className="flex space-x-2">
+            <input
+              type="text"
+              value={locationInput}
+              onChange={(e) => setLocationInput(e.target.value)}
+              placeholder="Enter location"
+              className="border rounded px-3 py-2"
+            />
+            <button
+              onClick={() => setLocationSubmitted(true)}
+              className="bg-blue-500 hover:bg-blue-600 text-white font-medium px-4 py-2 rounded"
+            >
+              Submit
+            </button>
           </div>
         )}
 
-        <div className="flex justify-center mt-4">
-          {isRecording || isProcessing ? (
-            <button
-              onClick={endConversation}
-              className="bg-red-500 hover:bg-red-600 text-white font-medium py-2 px-6 rounded-full focus:outline-none focus:ring-2 focus:ring-red-500 focus:ring-opacity-50 transition"
-              disabled={isProcessing}
-            >
-              End Conversation
-            </button>
-          ) : (
-            <button
-              onClick={startConversation}
-              className="bg-blue-500 hover:bg-blue-600 text-white font-medium py-2 px-6 rounded-full focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-opacity-50 transition"
-            >
-              Start Conversation
-            </button>
-          )}
-        </div>
-      </div>
-      <div className="flex space-x-2 mb-4">
-        <input
-          type="text"
-          value={locationInput}
-          onChange={(e) => setLocationInput(e.target.value)}
-          placeholder="Enter location"
-          className="border rounded px-3 py-2 flex-1"
-        />
-        <button
-          onClick={() => {
-            console.log("Saved value:", locationInput);
-            // or set another prop here if needed
-          }}
-          className="bg-blue-500 hover:bg-blue-600 text-white font-medium px-4 py-2 rounded"
-        >
-          Submit
-        </button>
+        {(isRecording || isProcessing) && locationSubmitted && (
+          <button
+            onClick={endConversation}
+            className="bg-red-500 hover:bg-red-600 text-white font-medium py-2 px-6 rounded-full focus:outline-none focus:ring-2 focus:ring-red-500 focus:ring-opacity-50 transition"
+            disabled={isProcessing}
+          >
+            End Conversation
+          </button>
+        )}
       </div>
     </div>
   );
