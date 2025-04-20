@@ -9,8 +9,9 @@ export default function Home() {
   const [backgroundNoise, setBackgroundNoise] = useState(0);
   const [cooldownActive, setCooldownActive] = useState(false);
   const [recordingDuration, setRecordingDuration] = useState(0);
-  const [sessionHistory, setSessionHistory] = useState<{ role: "user" | "assistant"; content: string }[]>([]);
-
+  const [sessionHistory, setSessionHistory] = useState<
+    { role: "user" | "assistant"; content: string }[]
+  >([]);
 
   const mediaRecorderRef = useRef<MediaRecorder | null>(null);
   const audioChunksRef = useRef<Blob[]>([]);
@@ -29,22 +30,20 @@ export default function Home() {
 
   // Constants
   const CALIBRATION_TIME = 2000; // Time to measure background noise (ms)
-  const MIN_RECORDING_TIME = 500; // Min recording duration to consider valid (ms)
+  const MIN_RECORDING_TIME = 1000; // Min recording duration to consider valid (ms)
   const MAX_RECORDING_DURATION = 8000; // Max recording time (ms)
   const SPEECH_THRESHOLD_MULTIPLIER = 2.0; // How much louder than background speech needs to be
   const MIN_SPEECH_VOLUME = 20; // Minimum volume to be considered speech
-  const SILENCE_DURATION = 1200; // How long silence before stopping (ms)
+  const SILENCE_DURATION = 700; // How long silence before stopping (ms)
   const COOLDOWN_DURATION = 1500; // Time between recordings (ms)
   const PROCESSING_TIMEOUT = 15000; // Maximum time to wait for processing (ms)
 
   // Start the recording process
   const startConversation = async () => {
     try {
-      // Reset all state
       resetAll();
       setStatus("Starting...");
 
-      // Request microphone access
       const stream = await navigator.mediaDevices.getUserMedia({
         audio: {
           echoCancellation: true,
@@ -54,34 +53,31 @@ export default function Home() {
       });
       microphoneStreamRef.current = stream;
 
-      // Begin calibration
-      setStatus("Calibrating background noise...");
-      setupAudioAnalysis(stream);
-
-      // After calibration period, start listening for speech
+      // 🔥 Add 0.5s boot delay AFTER mic access
       setTimeout(() => {
-        if (microphoneStreamRef.current) {
-          // Calculate background noise from calibration samples
-          const samples = volumeHistoryRef.current;
-          if (samples.length > 0) {
-            // Use the 25th percentile as background noise to avoid outliers
-            samples.sort((a, b) => a - b);
-            const backgroundNoiseValue =
-              samples[Math.floor(samples.length * 0.25)];
-            setBackgroundNoise(Math.round(backgroundNoiseValue));
-            console.log("Background noise level:", backgroundNoiseValue);
-          } else {
-            setBackgroundNoise(10); // Fallback value
+        setupAudioAnalysis(stream);
+        setStatus("Calibrating background noise... Please stay silent!"); // 🔥 Important: Tell user not to talk!
+
+        // After 2s calibration, move to listening
+        setTimeout(() => {
+          if (microphoneStreamRef.current) {
+            const samples = volumeHistoryRef.current;
+            if (samples.length > 0) {
+              samples.sort((a, b) => a - b);
+              const backgroundNoiseValue =
+                samples[Math.floor(samples.length * 0.25)];
+              setBackgroundNoise(Math.round(backgroundNoiseValue));
+              console.log("Background noise level:", backgroundNoiseValue);
+            } else {
+              setBackgroundNoise(10);
+            }
+
+            volumeHistoryRef.current = [];
+            setStatus("Listening for speech...");
+            waitForSpeech();
           }
-
-          // Clear history and prepare for speech detection
-          volumeHistoryRef.current = [];
-          setStatus("Listening for speech...");
-
-          // Start actual recording when speech is detected
-          waitForSpeech();
-        }
-      }, CALIBRATION_TIME);
+        }, CALIBRATION_TIME);
+      }, 500); // 🔥 0.5s bootup delay
     } catch (err) {
       console.error("Error starting:", err);
       setStatus("Error: Could not access microphone");
@@ -439,68 +435,83 @@ export default function Home() {
       const formData = new FormData();
       formData.append("file", audioBlob, "recording.webm");
       formData.append("sessionHistory", JSON.stringify(sessionHistory));
-  
+
       console.log("Sending audio and session history to server...");
       const response = await fetch("/api/talk", {
         method: "POST",
         body: formData,
       });
-  
+
       if (!response.ok || !response.body) {
-        console.error("Failed to get audio stream from server, status:", response.status);
+        console.error(
+          "Failed to get audio stream from server, status:",
+          response.status
+        );
         return;
       }
-  
+
       const reader = response.body.getReader();
       const mediaSource = new MediaSource();
       const audioUrl = URL.createObjectURL(mediaSource);
       const audio = new Audio(audioUrl);
-  
+
       let sourceBuffer: SourceBuffer | null = null;
       let playing = false;
-  
+
       let gptReply = ""; // <-- ADD THIS
-  
+
       mediaSource.addEventListener("sourceopen", async () => {
         try {
           sourceBuffer = mediaSource.addSourceBuffer("audio/mpeg");
-  
+
           const appendBuffer = async (chunk: Uint8Array) => {
             if (!sourceBuffer) return;
             if (sourceBuffer.updating) {
               await new Promise((resolve) => {
                 if (!sourceBuffer) return;
-                sourceBuffer.addEventListener("updateend", resolve, { once: true });
+                sourceBuffer.addEventListener("updateend", resolve, {
+                  once: true,
+                });
               });
             }
             sourceBuffer.appendBuffer(chunk);
           };
-  
+
           const processChunk = async () => {
             const { done, value } = await reader.read();
-  
+
             if (done) {
               if (sourceBuffer?.updating) {
-                sourceBuffer.addEventListener("updateend", () => {
-                  mediaSource.endOfStream();
-                }, { once: true });
+                sourceBuffer.addEventListener(
+                  "updateend",
+                  () => {
+                    mediaSource.endOfStream();
+                  },
+                  { once: true }
+                );
               } else {
                 mediaSource.endOfStream();
               }
-  
+
               // After all chunks processed, save GPT response
               if (gptReply.trim()) {
-                console.log("Saving GPT response to session history:", gptReply.trim());
-                setSessionHistory(prev => [...prev, { role: "assistant", content: gptReply.trim() }]);
+                console.log(
+                  "Saving GPT response to session history:",
+                  gptReply.trim()
+                );
+                setSessionHistory((prev) => [
+                  ...prev,
+                  { role: "assistant", content: gptReply.trim() },
+                ]);
               }
-  
+
               return;
             }
-  
+
             if (value && value.length > 0) {
               gptReply += new TextDecoder().decode(value); // <-- accumulate GPT text
               await appendBuffer(value);
-  
+
               if (!playing) {
                 playing = true;
                 try {
@@ -509,16 +520,16 @@ export default function Home() {
                 } catch (playError) {
                   console.error("Play error:", playError);
                 }
-  
+
                 audio.onended = () => {
                   playing = false;
                 };
               }
             }
-  
+
             processChunk();
           };
-  
+
           processChunk();
         } catch (err) {
           console.error("Error in source open handler:", err);
@@ -529,8 +540,6 @@ export default function Home() {
       throw err;
     }
   };
-  
-  
 
   // Clean up when component unmounts
   useEffect(() => {
