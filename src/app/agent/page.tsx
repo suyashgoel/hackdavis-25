@@ -12,6 +12,7 @@ export default function Home() {
   const [sessionHistory, setSessionHistory] = useState<
     { role: "user" | "assistant"; content: string }[]
   >([]);
+  const [locationInput, setLocationInput] = useState('');
 
   const mediaRecorderRef = useRef<MediaRecorder | null>(null);
   const audioChunksRef = useRef<Blob[]>([]);
@@ -435,6 +436,7 @@ export default function Home() {
       const formData = new FormData();
       formData.append("file", audioBlob, "recording.webm");
       formData.append("sessionHistory", JSON.stringify(sessionHistory));
+      formData.append("location", locationInput);
 
       console.log("Sending audio and session history to server...");
       const response = await fetch("/api/talk", {
@@ -449,6 +451,12 @@ export default function Home() {
         );
         return;
       }
+
+      if (response.headers.get("X-End-Session") === "true") {
+        console.log("Server says to end session after this audio finishes.");
+        endConversation();
+      }
+      
 
       const reader = response.body.getReader();
       const mediaSource = new MediaSource();
@@ -645,6 +653,24 @@ export default function Home() {
             </button>
           )}
         </div>
+      </div>
+      <div className="flex space-x-2 mb-4">
+        <input
+          type="text"
+          value={locationInput}
+          onChange={(e) => setLocationInput(e.target.value)}
+          placeholder="Enter location"
+          className="border rounded px-3 py-2 flex-1"
+        />
+        <button
+          onClick={() => {
+            console.log("Saved value:", locationInput);
+            // or set another prop here if needed
+          }}
+          className="bg-blue-500 hover:bg-blue-600 text-white font-medium px-4 py-2 rounded"
+        >
+          Submit
+        </button>
       </div>
     </div>
   );
