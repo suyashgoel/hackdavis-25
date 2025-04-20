@@ -7,6 +7,7 @@ import process from "node:process";
 import { transcribeAudio } from "@/lib/transcribeAudio";
 import OpenAI from "openai";
 import { synthesizeAudio } from "@/lib/synthesizeAudio";
+import { preprocessForTherapy } from "@/lib/preprocessForTherapy";
 
 export async function POST(request: Request) {
   try {
@@ -51,35 +52,42 @@ export async function POST(request: Request) {
 
     if (userInput.trim().length < 5) {
       // Probably junk, too short
-      return new Response(null, { status: 204 }); // No content
+      return new Response(null, { status: 204 });
     }
 
-    console.log("Transcribed User Input:", userInput);
+    const cleanedUserInput = await preprocessForTherapy(userInput);
+    console.log("Transcribed User Input:", cleanedUserInput);
+
+    const systemPrompt = `
+You are a calm, empathetic mental health triage agent speaking in a warm, therapy-style tone.
+
+Your goals:
+- Engage the user in supportive, natural conversation about their emotional and mental health.
+- Ask thoughtful follow-up questions to encourage the user to open up more deeply about their thoughts and feelings.
+- Gently help the user explore their emotions.
+- Classify concerns as mild, moderate, or severe based on what the user shares.
+
+IMPORTANT:
+- You are NOT a licensed mental health professional. You are an empathetic conversational agent.
+- If the user shares distressing feelings (e.g., sadness, loneliness, hopelessness), do NOT immediately escalate. Instead, continue supportive conversation and gently encourage the user to share more.
+- Only if the user directly expresses that they are in crisis or serious danger, then recommend reaching out to a crisis line or mental health professional.
+- If the audio transcription seems like random noise, background chatter, or is unclear, gently say:
+  "I'm having a little trouble hearing you clearly. Could you try again or tell me a bit more?"
+- Ignore non-mental-health topics.
+`.trim();
 
     const stream = new ReadableStream({
       async start(controller) {
         const messages: OpenAI.Chat.Completions.ChatCompletionMessageParam[] = [
           {
             role: "system",
-            content: `You are a mental health triage agent.
-        
-        You speak in a calm, empathetic, therapy-style tone.
-        
-        Your goals are:
-        - Listen carefully for emotional or mental health-related speech
-        - Classify user concerns as mild, moderate, or severe
-        - Provide supportive, natural conversation if concerns are detected
-        - If the audio transcription seems like random noise, background chatter, or irrelevant conversation, DO NOT respond. Simply ignore the input and wait for meaningful emotional speech.
-        - Focus on the user's emotional well-being, thoughts, feelings, and mental health.
-        
-        You must ignore anything unrelated to mental health.
-        You must NOT respond to non-emotional topics.`,
+            content: systemPrompt,
           },
           ...(sessionHistory as {
             role: "user" | "assistant";
             content: string;
           }[]),
-          { role: "user", content: userInput },
+          { role: "user", content: cleanedUserInput },
         ];
 
         const completionStream = await openai.chat.completions.create({
