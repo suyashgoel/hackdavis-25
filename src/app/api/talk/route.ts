@@ -8,9 +8,12 @@ import { transcribeAudio } from "@/lib/transcribeAudio";
 import OpenAI from "openai";
 import { synthesizeAudio } from "@/lib/synthesizeAudio";
 import { preprocessForTherapy } from "@/lib/preprocessForTherapy";
+import { severeAgent } from "@/lib/severeAgent";
+import { moderateAgent } from "@/lib/moderateAgent";
+import { mildAgent } from "@/lib/mildAgent";
 
 export async function POST(request: Request) {
-  try {
+  try {2
     const CartesiaKey = process.env.CARTESIA_API_KEY;
     const openai = new OpenAI({
       apiKey: process.env.OPENAI_API_KEY,
@@ -86,6 +89,23 @@ HANDLING UNCLEAR INPUT:
 - If the user says "NO_MEANINGFUL_CONTENT", expresses confusion, gives very short responses, or strays from emotional topics, gently say:
   "I'm not sure I understood fully. Would you like to tell me a little more about how you're feeling?"
 
+At any point, once you feel you have enough information, classify the user into one of three categories:
+
+- "mild" (general emotional challenges, life stress, can benefit from self-help and activities)
+- "moderate" (seeking therapy or professional counseling, could benefit from connecting to a therapist)
+- "severe" (immediate crisis, safety concern, needs emergency help)
+
+When you are confident about the classification, respond ONLY with structured output:
+
+TRIAGE_DECISION:
+{
+  "level": "mild" | "moderate" | "severe",
+  "concern": "brief summary of user's emotional concern" (for mild/moderate),
+  "location": "city, state or zip if user mentioned it" (for moderate/severe, or blank if unknown)
+}
+
+If you do not yet have enough information to complete this structured response, continue asking thoughtful, supportive questions.
+
 Remember: this is an experimental setting for academic research purposes only.
 `.trim();
 
@@ -116,20 +136,39 @@ Remember: this is an experimental setting for academic research purposes only.
           if (content) {
             buffer += content;
 
-            // Flush if ends with period, exclamation, question mark, OR buffer is getting big
-            if (
-              content.endsWith(".") ||
-              content.endsWith("!") ||
-              content.endsWith("?") ||
-              buffer.length > 300
-            ) {
-              console.log("Sending buffered chunk to Cartesia:", buffer);
+            const triageStart = buffer.indexOf("TRIAGE_DECISION:");
+            if (triageStart !== -1) {
+              const jsonString = buffer
+                .slice(triageStart + "TRIAGE_DECISION:".length)
+                .trim();
 
-              if (buffer.trim().length > 0) {
-                const cartesiaAudio = await synthesizeAudio(buffer);
-                controller.enqueue(new Uint8Array(cartesiaAudio));
+              try {
+                const triageData = JSON.parse(jsonString);
+                console.log("Parsed triage data:", triageData);
+
+                if (triageData.level === "mild") {
+                  const mildResponse = await mildAgent(triageData.concern);
+                  const mildAudio = await synthesizeAudio(mildResponse);
+                  controller.enqueue(new Uint8Array(mildAudio));
+                } else if (triageData.level === "moderate") {
+                  const moderateResponse = await moderateAgent(
+                    triageData.location
+                  );
+                  const moderateAudio = await synthesizeAudio(moderateResponse);
+                  controller.enqueue(new Uint8Array(moderateAudio));
+                } else if (triageData.level === "severe") {
+                  const severeResponse = await severeAgent(triageData.location);
+                  const severeAudio = await synthesizeAudio(severeResponse);
+                  controller.enqueue(new Uint8Array(severeAudio));
+                }
+
+                buffer = "";
+                controller.close();
+                return;
+              } catch (err) {
+                console.error("Failed to parse TRIAGE_DECISION JSON:", err);
+                // fallback: ignore and continue buffering
               }
-              buffer = "";
             }
           }
         }
@@ -137,8 +176,10 @@ Remember: this is an experimental setting for academic research purposes only.
         // After the loop, if there's anything left, send it too
         if (buffer.trim().length > 0) {
           console.log("Sending final buffered chunk to Cartesia:", buffer);
-          const cartesiaAudio = await synthesizeAudio(buffer);
-          controller.enqueue(new Uint8Array(cartesiaAudio));
+          if (!buffer.includes("TRIAGE_DECISION:")) {
+            const cartesiaAudio = await synthesizeAudio(buffer);
+            controller.enqueue(new Uint8Array(cartesiaAudio));
+          }
         }
 
         controller.close();
