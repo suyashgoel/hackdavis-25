@@ -442,61 +442,59 @@ export default function Home() {
     try {
       const formData = new FormData();
       formData.append("file", audioBlob, "recording.webm");
-      formData.append("sessionHistory", JSON.stringify(sessionHistory));
+      formData.append("sessionHistory", JSON.stringify(sessionHistory)); // ✅ use real full sessionHistory
       formData.append("location", locationInput);
-
-      console.log("Sending audio and session history to server...");
+  
+      console.log("Sending audio to server...");
       const response = await fetch("/api/talk", {
         method: "POST",
         body: formData,
       });
-
+  
       if (!response.ok || !response.body) {
-        console.error(
-          "Failed to get audio stream from server, status:",
-          response.status
-        );
+        console.error("Failed to get response, status:", response.status);
         return;
       }
-
+  
       if (response.headers.get("X-End-Session") === "true") {
-        console.log("Server says to end session after this audio finishes.");
+        console.log("Server ended session.");
         endConversation();
       }
-      
-
+  
+      // ✅ Step 2: Get full real session history from backend
+      const updatedSessionBase64 = response.headers.get("X-Session-History");
+      if (updatedSessionBase64) {
+        const updatedSessionJson = atob(updatedSessionBase64);
+        const updatedSession = JSON.parse(updatedSessionJson);
+        setSessionHistory(updatedSession); // 🔥 true updated one
+      }
+  
+      // ✅ Step 3: Stream and play audio
       const reader = response.body.getReader();
       const mediaSource = new MediaSource();
       const audioUrl = URL.createObjectURL(mediaSource);
       const audio = new Audio(audioUrl);
-
+  
       let sourceBuffer: SourceBuffer | null = null;
-      let playing = false;
-
-      let gptReply = ""; // <-- ADD THIS
-
+  
       mediaSource.addEventListener("sourceopen", async () => {
         try {
           sourceBuffer = mediaSource.addSourceBuffer("audio/mpeg");
-
+  
           const appendBuffer = async (chunk: Uint8Array) => {
             if (!sourceBuffer) return;
             if (sourceBuffer.updating) {
-              await new Promise((resolve) => {
-                if (!sourceBuffer) return;
-                sourceBuffer.addEventListener("updateend", resolve, {
-                  once: true,
-                });
-              });
+              await new Promise((resolve) =>
+                sourceBuffer!.addEventListener("updateend", resolve, { once: true })
+              );
             }
             sourceBuffer.appendBuffer(chunk);
           };
-
+  
           const processChunk = async () => {
             const { done, value } = await reader.read();
-
             if (done) {
-              if (sourceBuffer?.updating) {
+              if (sourceBuffer && sourceBuffer.updating) {
                 sourceBuffer.addEventListener(
                   "updateend",
                   () => {
@@ -507,47 +505,19 @@ export default function Home() {
               } else {
                 mediaSource.endOfStream();
               }
-
-              // After all chunks processed, save GPT response
-              if (gptReply.trim()) {
-                console.log(
-                  "Saving GPT response to session history:",
-                  gptReply.trim()
-                );
-                setSessionHistory((prev) => [
-                  ...prev,
-                  { role: "assistant", content: gptReply.trim() },
-                ]);
-              }
-
               return;
             }
-
             if (value && value.length > 0) {
-              gptReply += new TextDecoder().decode(value); // <-- accumulate GPT text
               await appendBuffer(value);
-
-              if (!playing) {
-                playing = true;
-                try {
-                  await audio.play();
-                  console.log("Audio started playing");
-                } catch (playError) {
-                  console.error("Play error:", playError);
-                }
-
-                audio.onended = () => {
-                  playing = false;
-                };
+              if (audio.paused) {
+                await audio.play();
               }
-            }
-
             processChunk();
           };
-
+  
           processChunk();
         } catch (err) {
-          console.error("Error in source open handler:", err);
+          console.error("Error during audio stream:", err);
         }
       });
     } catch (err) {

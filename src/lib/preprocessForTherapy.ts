@@ -1,37 +1,49 @@
 import OpenAI from "openai";
 
+const openai = new OpenAI({
+  apiKey: process.env.OPENAI_API_KEY,
+});
+
 export async function preprocessForTherapy(
   rawTranscript: string
-): Promise<string> {
-  const openai = new OpenAI({
-    apiKey: process.env.OPENAI_API_KEY,
-  });
-
-  const therapyShaped = await openai.chat.completions.create({
-    model: "gpt-4",
+): Promise<{
+  cleanedUserInput: string;
+  flag: "SEVERE_FLAG" | "MODERATE_FLAG" | "MILD_FLAG" | "INDETERMINATE";
+}> {
+  const completion = await openai.chat.completions.create({
+    model: "gpt-4o",
     messages: [
       {
         role: "system",
         content: `
-"You are a conversational text cleaner for a warm emotional support agent.
+You are an emotional conversation softener and triage detector for a supportive research agent.
 
-When given a raw transcription (may include noise, partial sentences, emotional content):
+YOUR TASK:
 
-1. **Clean the text**:
-    - Keep any genuine conversational emotional statements.
-    - Keep feelings, emotional sharing, small talk, or questions.
-    - Remove only random noise, background sounds, music, irrelevant clutter.
+Step 1 — CLEAN THE INPUT:
+- Remove background noise, irrelevant words, filler sounds.
+- Keep only meaningful emotional sharing, small talk, or emotional questions.
+- Soften strong emotional language (e.g., "depressed", "hopeless") into a warm, human expression.
+- Keep it first person ("I", "me", "my").
 
-2. **Detect if the user expresses imminent risk of self-harm, crisis or suicide**:
-    - Be sensitive: even indirect signals like 'I can't do this anymore' or 'nothing matters' may imply severe risk.
-    - If you detect imminent risk, instead of returning the cleaned text, **respond ONLY with "SEVERE_FLAG"**.
-    - If there is no clear severe risk, return the cleaned and preserved conversational text.
+Step 2 — DETECT TRIAGE LEVEL:
+- If imminent self-harm risk is detected (suicidal ideation, severe crisis), set flag to "SEVERE_FLAG".
+- If clear signs of major emotional struggle (persistent sadness, hopelessness, fatigue, disconnection) exist but not crisis level, set flag to "MODERATE_FLAG".
+- If mild sadness, mild stress, or mild emotional struggle, set flag to "MILD_FLAG".
+- If no meaningful emotional sharing detected, set flag to "INDETERMINATE".
 
-3. **Special Case**:
-    - If the entire input is ONLY noise or random sounds, respond with "NO_MEANINGFUL_CONTENT".
+OUTPUT RESPONSE STRICTLY AS JSON, NO EXTRAS:
 
-Be gentle — assume users are trying to connect, even if messy.  
-When in doubt, prefer preserving the conversation, unless severe risk is clearly detected."
+{
+  "cleanedUserInput": "the softened cleaned text here",
+  "flag": "SEVERE_FLAG" | "MODERATE_FLAG" | "MILD_FLAG" | "INDETERMINATE"
+}
+
+RULES:
+- Do NOT comment back.
+- Do NOT apologize or explain.
+- Only output valid JSON following the format exactly.
+- If uncertain, always default to "INDETERMINATE".
 `.trim(),
       },
       {
@@ -42,7 +54,17 @@ When in doubt, prefer preserving the conversation, unless severe risk is clearly
     temperature: 0.4,
   });
 
-  const finalReply = therapyShaped.choices[0]?.message?.content?.trim() || "";
+  const responseText = completion.choices[0]?.message?.content?.trim();
 
-  return finalReply;
+  if (!responseText) {
+    throw new Error("No content returned from OpenAI triage call.");
+  }
+
+  try {
+    const parsed = JSON.parse(responseText);
+    return parsed;
+  } catch (error) {
+    console.error("Failed to parse triage JSON:", responseText);
+    throw new Error("Triage response was not valid JSON.");
+  }
 }
