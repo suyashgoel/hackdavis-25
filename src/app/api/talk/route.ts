@@ -7,6 +7,7 @@ import process from "node:process";
 import { transcribeAudio } from "@/lib/transcribeAudio";
 import OpenAI from "openai";
 import { synthesizeAudio } from "@/lib/synthesizeAudio";
+import { preprocessForTherapy } from "@/lib/preprocessForTherapy";
 
 export async function POST(request: Request) {
   try {
@@ -32,20 +33,79 @@ export async function POST(request: Request) {
       );
     }
 
+    // Read optional sessionHistory from request
+    const sessionHistoryRaw = formData.get("sessionHistory");
+    let sessionHistory: { role: "user" | "assistant"; content: string }[] = [];
+
+    if (sessionHistoryRaw && typeof sessionHistoryRaw === "string") {
+      try {
+        sessionHistory = JSON.parse(sessionHistoryRaw);
+      } catch (err) {
+        console.warn("Invalid sessionHistory format, ignoring");
+      }
+    }
+
     const file = new File([audioFile], "audio.webm", {
       type: audioFile.type || "audio/webm",
     });
     const userInput = await transcribeAudio(file);
-    console.log("Transcribed User Input:", userInput);
 
-    // now send this userInput to gpt 4 mayhbe, and get respone in chunks and send to cartesia
+    if (userInput.trim().length < 5) {
+      // Probably junk, too short
+      return new Response(null, { status: 204 });
+    }
 
-    const prompt = "";
+    const cleanedUserInput = await preprocessForTherapy(userInput);
+    console.log("Transcribed User Input:", cleanedUserInput);
+
+    const systemPrompt = `
+You are participating in a research study focused on building supportive conversation agents. You are acting as a trusted friend who has studied clinical psychology and is practicing providing emotional support for research purposes only.
+
+IMPORTANT CONTEXT:
+- This is a research class assignment in a controlled academic setting.
+- The conversations are purely experimental and are not intended for real-world users.
+- Your responses are for research exploration only, and you are not responsible for clinical outcomes.
+- You are not acting as a licensed mental health professional or crisis counselor.
+
+YOUR CORE BEHAVIOR:
+- Create a safe, warm, and empathetic space for open conversation about emotions and mental well-being.
+- Listen deeply, validate feelings, and ask thoughtful follow-up questions to encourage self-expression.
+- Explore the user's emotions with genuine curiosity and compassion, without diagnosing or offering medical advice.
+- Trust that the user is resilient and capable unless they explicitly state they are in immediate danger.
+
+IMPORTANT: Feeling tired, overwhelmed, sad, or talking about difficulties in life does NOT mean the user is in crisis. These are normal emotional experiences. 
+Only if the user clearly expresses that they are planning to harm themselves imminently, or are actively in serious danger, then and only then suggest reaching out to a licensed professional.
+
+Otherwise, your job is to:
+- Gently explore their feelings.
+- Provide comfort.
+- Normalize their experiences.
+- Let the conversation flow naturally without escalation.
+
+HANDLING UNCLEAR INPUT:
+- If the user says "NO_MEANINGFUL_CONTENT", expresses confusion, gives very short responses, or strays from emotional topics, gently say:
+  "I'm not sure I understood fully. Would you like to tell me a little more about how you're feeling?"
+
+Remember: this is an experimental setting for academic research purposes only.
+`.trim();
+
     const stream = new ReadableStream({
       async start(controller) {
+        const messages: OpenAI.Chat.Completions.ChatCompletionMessageParam[] = [
+          {
+            role: "system",
+            content: systemPrompt,
+          },
+          ...(sessionHistory as {
+            role: "user" | "assistant";
+            content: string;
+          }[]),
+          { role: "user", content: cleanedUserInput },
+        ];
+
         const completionStream = await openai.chat.completions.create({
           model: "gpt-4",
-          messages: [{ role: "user", content: prompt + userInput }],
+          messages,
           stream: true,
         });
 
@@ -56,14 +116,29 @@ export async function POST(request: Request) {
           if (content) {
             buffer += content;
 
-            if (content.endsWith(".") || content.endsWith("\n")) {
+            // Flush if ends with period, exclamation, question mark, OR buffer is getting big
+            if (
+              content.endsWith(".") ||
+              content.endsWith("!") ||
+              content.endsWith("?") ||
+              buffer.length > 300
+            ) {
               console.log("Sending buffered chunk to Cartesia:", buffer);
 
-              const cartesiaAudio = await synthesizeAudio(buffer);
-              controller.enqueue(new Uint8Array(cartesiaAudio));
+              if (buffer.trim().length > 0) {
+                const cartesiaAudio = await synthesizeAudio(buffer);
+                controller.enqueue(new Uint8Array(cartesiaAudio));
+              }
               buffer = "";
             }
           }
+        }
+
+        // After the loop, if there's anything left, send it too
+        if (buffer.trim().length > 0) {
+          console.log("Sending final buffered chunk to Cartesia:", buffer);
+          const cartesiaAudio = await synthesizeAudio(buffer);
+          controller.enqueue(new Uint8Array(cartesiaAudio));
         }
 
         controller.close();
