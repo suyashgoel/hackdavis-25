@@ -188,9 +188,37 @@ async function handleTriageDecision(flag: string, location: string,  sessionHist
     if (!location) {
       return NextResponse.json({ error: "No location provided" }, { status: 400 });
     }
+  
     const crisisResources = await severeAgent(location);
-    console.log("[Severe Resources]:", crisisResources);
-  } else if (flag === "MODERATE_FLAG" && sessionHistory.filter(m => m.role === "user").length >=2) {
+    console.log("[Severe Resources Generated]:", crisisResources);
+  
+    const crisisAudio = await synthesizeAudio(crisisResources); // <-- 🔥 actually synthesize
+    const goodbyeAudio = await synthesizeAudio(
+      "Thank you for trusting us. Please reach out to the resources shared with you. Wishing you strength."
+    );
+  
+    const combined = new Uint8Array(
+      crisisAudio.byteLength + goodbyeAudio.byteLength
+    );
+    combined.set(new Uint8Array(crisisAudio), 0);
+    combined.set(new Uint8Array(goodbyeAudio), crisisAudio.byteLength);
+  
+    const stream = new ReadableStream({
+      start(controller) {
+        controller.enqueue(combined);
+        controller.close();
+      },
+    });
+  
+    return new Response(stream, {
+      status: 200,
+      headers: {
+        "Content-Type": "audio/mpeg",
+        "X-End-Session": "true", // <-- Tell frontend to stop convo after playback
+      },
+    });
+  }
+   else if (flag === "MODERATE_FLAG" && sessionHistory.filter(m => m.role === "user").length >=2) {
     if (!location) {
       return NextResponse.json({ error: "No location provided" }, { status: 400 });
     }
