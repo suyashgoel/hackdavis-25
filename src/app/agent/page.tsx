@@ -4,6 +4,7 @@ import { useState, useRef, useEffect } from "react";
 export default function Home() {
   const [isRecording, setIsRecording] = useState(false);
   const [isProcessing, setIsProcessing] = useState(false);
+  const [isResponding, setIsResponding] = useState(false); // Track if AI is currently responding
   const [status, setStatus] = useState("Ready");
   const [volumeLevel, setVolumeLevel] = useState(0);
   const [backgroundNoise, setBackgroundNoise] = useState(0);
@@ -24,6 +25,9 @@ export default function Home() {
   const speechDetectedRef = useRef<boolean>(false);
   const startTimeRef = useRef<number>(0);
   const processingTimeoutRef = useRef<NodeJS.Timeout | null>(null);
+  const currentAudioRef = useRef<HTMLAudioElement | null>(null); // Reference to current audio player
+  const mediaSourceRef = useRef<MediaSource | null>(null); // Reference to current MediaSource
+  const responseReaderRef = useRef<ReadableStreamDefaultReader | null>(null); // Reference to stream reader
 
   // Constants
   const CALIBRATION_TIME = 2000; // Time to measure background noise (ms)
@@ -34,6 +38,76 @@ export default function Home() {
   const SILENCE_DURATION = 1200; // How long silence before stopping (ms)
   const COOLDOWN_DURATION = 1500; // Time between recordings (ms)
   const PROCESSING_TIMEOUT = 15000; // Maximum time to wait for processing (ms)
+  const INTERRUPTION_THRESHOLD_MULTIPLIER = 2.5; // Higher threshold for interruption detection
+
+  // Function to terminate current AI response playback
+  const terminateCurrentResponse = () => {
+    if (isResponding && currentAudioRef.current) {
+      console.log("Terminating current response");
+      
+      // Stop the audio playback
+      currentAudioRef.current.pause();
+      
+      // Close the media source if it exists
+      if (mediaSourceRef.current && mediaSourceRef.current.readyState === "open") {
+        try {
+          mediaSourceRef.current.endOfStream();
+        } catch (err) {
+          console.error("Error ending media source stream:", err);
+        }
+      }
+      
+      // Close the reader if it exists
+      if (responseReaderRef.current) {
+        try {
+          responseReaderRef.current.cancel("User interrupted");
+        } catch (err) {
+          console.error("Error canceling stream reader:", err);
+        }
+        responseReaderRef.current = null;
+      }
+      
+      // Clean up references
+      currentAudioRef.current = null;
+      mediaSourceRef.current = null;
+      
+      // Update state
+      setIsResponding(false);
+      setStatus("Response terminated");
+      
+      // Start listening again after a short cooldown
+      startCooldown();
+    }
+  };
+
+  // Check for interruptions during AI response
+  const checkForInterruption = () => {
+    if (!isResponding) return;
+    
+    const interruptionThreshold = Math.max(
+      backgroundNoise * INTERRUPTION_THRESHOLD_MULTIPLIER,
+      MIN_SPEECH_VOLUME * 1.5
+    );
+    
+    // Get recent volume samples
+    const recentSamples = volumeHistoryRef.current.slice(-5);
+    
+    if (recentSamples.length > 3) { 
+      const avgVolume = recentSamples.reduce((sum, v) => sum + v, 0) / recentSamples.length;
+      
+      // If volume significantly exceeds the threshold, terminate response
+      if (avgVolume > interruptionThreshold) {
+        console.log("Interruption detected, terminating response");
+        terminateCurrentResponse();
+        return;
+      }
+    }
+    
+    // Continue checking for interruptions
+    if (isResponding) {
+      setTimeout(checkForInterruption, 100);
+    }
+  };
 
   // Start the recording process
   const startConversation = async () => {
@@ -349,10 +423,15 @@ export default function Home() {
 
   // End the entire conversation
   const endConversation = () => {
+    // First terminate any current response
+    terminateCurrentResponse();
+    
+    // Then reset everything
     resetAll();
     setStatus("Conversation ended");
     setIsRecording(false);
     setIsProcessing(false);
+    setIsResponding(false);
   };
 
   // Clear all timers
@@ -408,6 +487,9 @@ export default function Home() {
       mediaRecorderRef.current.stop();
     }
     
+    // Terminate any ongoing response
+    terminateCurrentResponse();
+    
     audioChunksRef.current = [];
     volumeHistoryRef.current = [];
     speechDetectedRef.current = false;
@@ -415,113 +497,7 @@ export default function Home() {
     setCooldownActive(false);
   };
 
-  // Send audio to server
-  const sendAudioBlob = async (audioBlob: Blob) => {
-    try {
-      const formData = new FormData();
-      formData.append("file", audioBlob, "recording.webm");
-
-      console.log("Sending audio to server...");
-      const response = await fetch("/api/talk", {
-        method: "POST",
-        body: formData,
-      });
-
-      if (!response.ok || !response.body) {
-        console.error("Failed to get audio stream from server, status:", response.status);
-        return;
-      }
-
-      const reader = response.body.getReader();
-      console.log("Got response stream from server");
-
-      const mediaSource = new MediaSource();
-      const audioUrl = URL.createObjectURL(mediaSource);
-      const audio = new Audio(audioUrl);
-
-      mediaSource.addEventListener("sourceopen", async () => {
-        try {
-          const sourceBuffer = mediaSource.addSourceBuffer("audio/mpeg");
-          audio.play().catch(e => console.error("Play error:", e));
-
-          const processChunk = async () => {
-            try {
-              const { done, value } = await reader.read();
-              if (done) {
-                if (sourceBuffer.updating) {
-                  sourceBuffer.addEventListener(
-                    "updateend",
-                    () => {
-                      mediaSource.endOfStream();
-                    },
-                    { once: true }
-                  );
-                } else {
-                  mediaSource.endOfStream();
-                }
-                return;
-              }
-              
-              if (value && value.length > 0) {
-                if (sourceBuffer.updating) {
-                  await new Promise((resolve) => {
-                    sourceBuffer.addEventListener("updateend", resolve, {
-                      once: true,
-                    });
-                  });
-                }
-                sourceBuffer.appendBuffer(value);
-              }
-              
-              processChunk();
-            } catch (err) {
-              console.error("Error processing audio chunk:", err);
-            }
-          };
-
-          processChunk();
-        } catch (err) {
-          console.error("Error in source open handler:", err);
-        }
-      });
-    } catch (err) {
-      console.error("Error sending audio:", err);
-      throw err;
-    }
-  };
-
-  // Clean up when component unmounts
-  useEffect(() => {
-    return () => {
-      resetAll();
-      
-      // Stop all tracks in the stream
-      if (microphoneStreamRef.current) {
-        microphoneStreamRef.current.getTracks().forEach(track => track.stop());
-        microphoneStreamRef.current = null;
-      }
-      
-      // Clean up audio context
-      if (audioContextRef.current) {
-        audioContextRef.current.close().catch(console.error);
-        audioContextRef.current = null;
-      }
-    };
-  }, []);
-
-  // Format time for display
-  const formatTime = (ms: number) => {
-    const seconds = Math.floor(ms / 1000);
-    const tenths = Math.floor((ms % 1000) / 100);
-    return `${seconds}.${tenths}s`;
-  };
-
-  // Calculate speech threshold for UI
-  const speechThreshold = Math.max(
-    backgroundNoise * SPEECH_THRESHOLD_MULTIPLIER,
-    MIN_SPEECH_VOLUME
-  );
-
+  
   return (
     <div className="flex flex-col items-center justify-center min-h-screen bg-gray-100 p-4">
       <div className="bg-white rounded-lg shadow-md p-6 w-full max-w-md">
@@ -533,15 +509,20 @@ export default function Home() {
             {mediaRecorderRef.current?.state === "recording" && (
               <span className="ml-2 text-red-500">{formatTime(recordingDuration)}</span>
             )}
+            {isResponding && (
+              <span className="ml-2 text-blue-500">(Speak to interrupt)</span>
+            )}
           </div>
         </div>
         
-        {(isRecording || isProcessing) && (
+        {(isRecording || isProcessing || isResponding) && (
           <div className="mb-4">
             <div className="w-full bg-gray-200 rounded-full h-3 mb-1">
               <div 
                 className={`h-3 rounded-full ${
-                  volumeLevel > speechThreshold ? "bg-green-500" : "bg-blue-500"
+                  isResponding
+                    ? volumeLevel > interruptionThreshold ? "bg-red-500" : "bg-blue-500"
+                    : volumeLevel > speechThreshold ? "bg-green-500" : "bg-blue-500"
                 }`}
                 style={{ width: `${Math.min(100, volumeLevel * 2)}%` }}
               ></div>
@@ -559,22 +540,37 @@ export default function Home() {
               >
                 Speech threshold
               </div>
+              
+              {isResponding && (
+                <>
+                  {/* Interruption threshold marker */}
+                  <div 
+                    className="absolute h-full border-l-2 border-purple-500"
+                    style={{ left: `${Math.min(100, interruptionThreshold * 2)}%` }}
+                  ></div>
+                  <div 
+                    className="absolute text-xs text-purple-500 transform -translate-x-1/2"
+                    style={{ left: `${Math.min(100, interruptionThreshold * 2)}%`, top: '0px' }}
+                  >
+                    Interrupt threshold
+                  </div>
+                </>
+              )}
             </div>
             
             <div className="flex justify-between text-xs text-gray-500">
               <span>Volume: {volumeLevel}</span>
               <span>Background: {backgroundNoise}</span>
-              <span>Threshold: {speechThreshold}</span>
+              <span>Threshold: {isResponding ? interruptionThreshold : speechThreshold}</span>
             </div>
           </div>
         )}
         
         <div className="flex justify-center mt-4">
-          {isRecording || isProcessing ? (
+          {isRecording || isProcessing || isResponding ? (
             <button
               onClick={endConversation}
               className="bg-red-500 hover:bg-red-600 text-white font-medium py-2 px-6 rounded-full focus:outline-none focus:ring-2 focus:ring-red-500 focus:ring-opacity-50 transition"
-              disabled={isProcessing}
             >
               End Conversation
             </button>
