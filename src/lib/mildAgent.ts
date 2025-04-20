@@ -2,8 +2,12 @@ import OpenAI from "openai";
 
 const openai = new OpenAI({ apiKey: process.env.OPENAI_API_KEY });
 
-export async function mildAgent(concern: string): Promise<string> {
-  if (!concern) return "Please provide a concern to receive homework strategies.";
+export async function mildAgent(
+  sessionHistory: { role: "user" | "assistant"; content: string }[]
+): Promise<string> {
+  if (!sessionHistory || sessionHistory.length === 0) {
+    return "Please provide a session history to generate homework strategies.";
+  }
 
   try {
     const completion = await openai.chat.completions.create({
@@ -12,30 +16,41 @@ export async function mildAgent(concern: string): Promise<string> {
         {
           role: "system",
           content: `
-You are acting as a therapy homework assistant.
+You are acting as a therapy-style homework assistant inside a supportive, imaginary world.
 
-When given a user's emotional or mental health concern, your job is to generate:
+Your job is to review the full emotional conversation history between a caring friend and a user.
 
-- 3 to 5 structured, science-backed homework assignments, exercises, or protocols they can realistically implement on their own.
-- Pull from real therapies and science, such as CBT exercises (thought records, behavioral activation), ACT (acceptance and commitment therapy), DBT (distress tolerance, emotional regulation), mindfulness training, or known protocols (Huberman Lab Sleep Toolkit, MBSR, etc).
-- Be specific: what exactly should they DO at home? Describe the activity, framework, or worksheet clearly.
-- If available, mention the name of the technique or protocol they can research or use (but explain it simply).
-- Avoid generic advice ("get more sleep", "think positive"). Provide real practices with purpose and structure.
+Based on the user's emotional expressions, generate:
 
-The goal is to give users practical, tangible activities they can start doing immediately to improve their concern.
+- 3 to 5 **structured**, **science-backed** homework activities or exercises the user can realistically do at home.
+- Draw from real therapeutic techniques (CBT, ACT, DBT, mindfulness, behavioral activation, thought records, MBSR, etc.).
+- Focus on practical, tangible steps — not vague advice.
+- Clearly explain what the user should do, and if possible, name the method (e.g., "Behavioral Activation: Create a list of enjoyable activities and schedule one this week").
 
-Respond supportively and practically.
-`
+Strict Rules:
+- Be supportive, practical, and encouraging.
+- Avoid general platitudes ("get more sleep", "stay positive").
+- Focus on real psychological skills the user can apply immediately.
+
+Respond in a warm, encouraging tone while offering clear instructions.
+        `.trim(),
         },
         {
           role: "user",
-          content: `Concern: ${concern}`,
+          content: `
+Here is the emotional conversation history:
+
+${sessionHistory.map((msg) => `${msg.role}: ${msg.content}`).join("\n")}
+
+Based on the user's emotional needs and expressions, please suggest practical, structured homework strategies they can start trying at home.
+          `.trim(),
         },
       ],
       temperature: 0.5,
     });
 
-    const response = completion.choices[0].message.content ?? "No strategies could be generated.";
+    const response =
+      completion.choices[0]?.message?.content ?? "No strategies could be generated.";
     return response.trim();
   } catch (error) {
     console.error("mildAgent error:", error);
