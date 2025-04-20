@@ -109,10 +109,10 @@ if (cleanedUserInput === "SEVERE_FLAG") {
   });
 }
 
-
     console.log("Transcribed User Input:", cleanedUserInput);
 
-    const systemPrompt = `
+    const systemPrompt = 
+`
 You are participating in a research study focused on understanding emotional conversation agents. You are acting as a trusted, non-judgmental conversational partner who has studied clinical psychology for research purposes only.
 
 IMPORTANT CONTEXT:
@@ -161,7 +161,8 @@ REMEMBER:
 This is a research experiment. You are creating a warm, non-judgmental, human-like space for emotional exploration, not diagnosing or directing the user.
 
 You trust the user's strength unless directly told otherwise.
-`.trim();
+`
+.trim();
 
     const stream = new ReadableStream({
       async start(controller) {

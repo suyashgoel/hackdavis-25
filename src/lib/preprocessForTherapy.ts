@@ -22,7 +22,7 @@ When given a raw transcription (may include noise, partial sentences, emotional 
     - Keep feelings, emotional sharing, small talk, or questions.
     - Remove only random noise, background sounds, music, irrelevant clutter.
 
-2. **Detect if the user expresses imminent risk of self-harm or suicide**:
+2. **Detect if the user expresses imminent risk of self-harm, crisis or suicide**:
     - Be sensitive: even indirect signals like 'I can't do this anymore' or 'nothing matters' may imply severe risk.
     - If you detect imminent risk, instead of returning the cleaned text, **respond ONLY with "SEVERE_FLAG"**.
     - If there is no clear severe risk, return the cleaned and preserved conversational text.
