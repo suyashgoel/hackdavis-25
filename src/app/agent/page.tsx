@@ -1,5 +1,7 @@
 "use client";
 import { useState, useRef, useEffect } from "react";
+import Navbar from "../components/Navbar";
+import { Search } from "lucide-react";
 
 export default function Home() {
   const [isRecording, setIsRecording] = useState(false);
@@ -12,6 +14,9 @@ export default function Home() {
   const [sessionHistory, setSessionHistory] = useState<
     { role: "user" | "assistant"; content: string }[]
   >([]);
+  const [locationInput, setLocationInput] = useState("");
+  const [locationSubmitted, setLocationSubmitted] = useState(false);
+
 
   const mediaRecorderRef = useRef<MediaRecorder | null>(null);
   const audioChunksRef = useRef<Blob[]>([]);
@@ -434,54 +439,59 @@ export default function Home() {
     try {
       const formData = new FormData();
       formData.append("file", audioBlob, "recording.webm");
-      formData.append("sessionHistory", JSON.stringify(sessionHistory));
-
-      console.log("Sending audio and session history to server...");
+      formData.append("sessionHistory", JSON.stringify(sessionHistory)); // ✅ use real full sessionHistory
+      formData.append("location", locationInput);
+  
+      console.log("Sending audio to server...");
       const response = await fetch("/api/talk", {
         method: "POST",
         body: formData,
       });
-
+  
       if (!response.ok || !response.body) {
-        console.error(
-          "Failed to get audio stream from server, status:",
-          response.status
-        );
+        console.error("Failed to get response, status:", response.status);
         return;
       }
-
+  
+      if (response.headers.get("X-End-Session") === "true") {
+        console.log("Server ended session.");
+        endConversation();
+      }
+  
+      // ✅ Step 2: Get full real session history from backend
+      const updatedSessionBase64 = response.headers.get("X-Session-History");
+      if (updatedSessionBase64) {
+        const updatedSessionJson = atob(updatedSessionBase64);
+        const updatedSession = JSON.parse(updatedSessionJson);
+        setSessionHistory(updatedSession); // 🔥 true updated one
+      }
+  
+      // ✅ Step 3: Stream and play audio
       const reader = response.body.getReader();
       const mediaSource = new MediaSource();
       const audioUrl = URL.createObjectURL(mediaSource);
       const audio = new Audio(audioUrl);
-
+  
       let sourceBuffer: SourceBuffer | null = null;
-      let playing = false;
-
-      let gptReply = ""; // <-- ADD THIS
-
+  
       mediaSource.addEventListener("sourceopen", async () => {
         try {
           sourceBuffer = mediaSource.addSourceBuffer("audio/mpeg");
-
+  
           const appendBuffer = async (chunk: Uint8Array) => {
             if (!sourceBuffer) return;
             if (sourceBuffer.updating) {
-              await new Promise((resolve) => {
-                if (!sourceBuffer) return;
-                sourceBuffer.addEventListener("updateend", resolve, {
-                  once: true,
-                });
-              });
+              await new Promise((resolve) =>
+                sourceBuffer!.addEventListener("updateend", resolve, { once: true })
+              );
             }
             sourceBuffer.appendBuffer(chunk);
           };
-
+  
           const processChunk = async () => {
             const { done, value } = await reader.read();
-
             if (done) {
-              if (sourceBuffer?.updating) {
+              if (sourceBuffer && sourceBuffer.updating) {
                 sourceBuffer.addEventListener(
                   "updateend",
                   () => {
@@ -492,47 +502,20 @@ export default function Home() {
               } else {
                 mediaSource.endOfStream();
               }
-
-              // After all chunks processed, save GPT response
-              if (gptReply.trim()) {
-                console.log(
-                  "Saving GPT response to session history:",
-                  gptReply.trim()
-                );
-                setSessionHistory((prev) => [
-                  ...prev,
-                  { role: "assistant", content: gptReply.trim() },
-                ]);
-              }
-
               return;
             }
-
             if (value && value.length > 0) {
-              gptReply += new TextDecoder().decode(value); // <-- accumulate GPT text
               await appendBuffer(value);
-
-              if (!playing) {
-                playing = true;
-                try {
-                  await audio.play();
-                  console.log("Audio started playing");
-                } catch (playError) {
-                  console.error("Play error:", playError);
-                }
-
-                audio.onended = () => {
-                  playing = false;
-                };
+              if (audio.paused) {
+                await audio.play();
               }
             }
-
             processChunk();
           };
-
+  
           processChunk();
         } catch (err) {
-          console.error("Error in source open handler:", err);
+          console.error("Error during audio stream:", err);
         }
       });
     } catch (err) {
@@ -576,75 +559,80 @@ export default function Home() {
   );
 
   return (
-    <div className="flex flex-col items-center justify-center min-h-screen bg-gray-100 p-4">
-      <div className="bg-white rounded-lg shadow-md p-6 w-full max-w-md">
-        <h1 className="text-2xl font-bold mb-4 text-center">Voice Chat</h1>
+    <div className="relative flex flex-col items-center justify-center min-h-screen">
+      <Navbar />
+      <img
+        src="/bckgrndgrad.png"
+        alt="background gradient"
+        className="absolute bottom-0 z-0 w-full object-cover"
+      />
 
-        <div className="flex justify-center mb-4">
-          <div className="text-lg font-medium text-center">
-            {status}
-            {mediaRecorderRef.current?.state === "recording" && (
-              <span className="ml-2 text-red-500">
-                {formatTime(recordingDuration)}
-              </span>
-            )}
-          </div>
+      <img
+        src="/Numaframe1.png"
+        alt="Numaframe"
+        className="z-10 mb-4 w-140 object-contain"
+      />
+
+      {!isRecording && !isProcessing && !locationSubmitted && (
+        <div className="z-10 text-black text-4xl font-inter mb-6">
+          Hi, how can I help you today?
         </div>
+      )}
 
-        {(isRecording || isProcessing) && (
-          <div className="mb-4">
-            <div className="w-full bg-gray-200 rounded-full h-3 mb-1">
-              <div
-                className={`h-3 rounded-full ${
-                  volumeLevel > speechThreshold ? "bg-green-500" : "bg-blue-500"
-                }`}
-                style={{ width: `${Math.min(100, volumeLevel * 2)}%` }}
-              ></div>
-            </div>
+      <div className="z-10">
+        {/* Start button */}
+        {!isRecording && !isProcessing && !locationSubmitted && (
+          <button
+            onClick={startConversation}
+            className="bg-[#DAC5F6] text-[#3A3A3A] font-inter text-lg py-2 px-6 w-[300px] rounded-full border border-[#CAA9F4] focus:outline-none transition"
+          >
+            Start Conversation
+          </button>
+        )}
 
-            <div className="w-full relative h-6 mb-2">
-              {/* Speech threshold marker */}
-              <div
-                className="absolute h-full border-l-2 border-red-500"
-                style={{ left: `${Math.min(100, speechThreshold * 2)}%` }}
-              ></div>
-              <div
-                className="absolute text-xs text-red-500 transform -translate-x-1/2"
-                style={{
-                  left: `${Math.min(100, speechThreshold * 2)}%`,
-                  top: "0px",
-                }}
-              >
-                Speech threshold
-              </div>
-            </div>
+        {/* Location Input */}
+        {(isRecording || isProcessing) && !locationSubmitted && (
+          <div className="flex flex-col items-center space-y-2">
+            <form
+              onSubmit={(e) => {
+                e.preventDefault();
+                setLocationSubmitted(true);
+              }}
+              className="relative w-[570px]"
+            >
+              <input
+                type="text"
+                value={locationInput}
+                onChange={(e) => setLocationInput(e.target.value)}
+                placeholder="Enter location"
+                className="bg-[#DAC5F6] text-[#3A3A3A] font-inter text-lg py-2 px-6 pr-12 w-[570px] rounded-full border border-[#CAA9F4] focus:outline-none transition"
+              />
+              <Search
+                className="absolute right-4 top-1/2 transform -translate-y-1/2 text-gray-400 pointer-events-none"
+                size={20}
+              />
+            </form>
 
-            <div className="flex justify-between text-xs text-gray-500">
-              <span>Volume: {volumeLevel}</span>
-              <span>Background: {backgroundNoise}</span>
-              <span>Threshold: {speechThreshold}</span>
-            </div>
+            <p className="text-gray-600 text-sm">
+              Before we get started, would you be comfortable sharing your
+              location?
+            </p>
+            <p className="text-gray-600 text-sm">
+              That way, I can offer support and resources that are local to you.
+            </p>
           </div>
         )}
 
-        <div className="flex justify-center mt-4">
-          {isRecording || isProcessing ? (
-            <button
-              onClick={endConversation}
-              className="bg-red-500 hover:bg-red-600 text-white font-medium py-2 px-6 rounded-full focus:outline-none focus:ring-2 focus:ring-red-500 focus:ring-opacity-50 transition"
-              disabled={isProcessing}
-            >
-              End Conversation
-            </button>
-          ) : (
-            <button
-              onClick={startConversation}
-              className="bg-blue-500 hover:bg-blue-600 text-white font-medium py-2 px-6 rounded-full focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-opacity-50 transition"
-            >
-              Start Conversation
-            </button>
-          )}
-        </div>
+        {/* End button */}
+        {(isRecording || isProcessing) && locationSubmitted && (
+          <button
+            onClick={endConversation}
+            className="bg-[#DAC5F6] text-[#3A3A3A] font-inter text-lg py-2 px-6 w-[300px] rounded-full border border-[#CAA9F4] focus:outline-none transition"
+            disabled={isProcessing}
+          >
+            End Conversation
+          </button>
+        )}
       </div>
     </div>
   );
