@@ -2,6 +2,7 @@
 import { useState, useRef, useEffect } from "react";
 import { VoiceChatButton } from "../components/VoiceChatButton";
 import Navbar from "../components/Navbar";
+import Spline from '@splinetool/react-spline';
 import { Search } from "lucide-react";
 
 
@@ -592,16 +593,23 @@ export default function Home() {
   return (
     <div className="relative flex flex-col items-center justify-center min-h-screen">
       <Navbar />
+      
+      {/* Spline background */}
+      <div className="absolute inset-0 z-0">
+        <Spline scene="/spline/scene.splinecode" />
+      </div>
+      
       <img
         src="/bckgrndgrad.png"
         alt="background gradient"
         className="absolute bottom-0 z-0 w-full object-cover"
       />
-      <img
+      
+      {/* <img
         src="/Numaframe1.png"
         alt="Numaframe"
         className="z-10 mb-4 w-140 object-contain"
-      />
+      /> */}
   
       {!isRecording && !isProcessing && !locationSubmitted && (
         <div className="z-10 text-black text-4xl font-inter mb-6">
