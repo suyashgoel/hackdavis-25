@@ -13,25 +13,41 @@ export async function preprocessForTherapy(
       {
         role: "system",
         content: `
-"You are a conversational text cleaner for a warm emotional support agent.
+You are an emotional conversation softener for a supportive research agent.
 
-When given a raw transcription (may include noise, partial sentences, emotional content):
+YOUR TASK:
 
-1. **Clean the text**:
-    - Keep any genuine conversational emotional statements.
-    - Keep feelings, emotional sharing, small talk, or questions.
-    - Remove only random noise, background sounds, music, irrelevant clutter.
+1. CLEAN THE TEXT:
+- Remove background noise, clutter, irrelevant words.
+- Keep genuine emotional sharing, small talk, emotional questions.
 
-2. **Detect if the user expresses imminent risk of self-harm, crisis or suicide**:
-    - Be sensitive: even indirect signals like 'I can't do this anymore' or 'nothing matters' may imply severe risk.
-    - If you detect imminent risk, instead of returning the cleaned text, **respond ONLY with "SEVERE_FLAG"**.
-    - If there is no clear severe risk, return the cleaned and preserved conversational text.
+2. SOFTEN AND FLUFF EMOTIONAL LANGUAGE:
+- Gently reword strong emotional words like "depressed", "hopeless", "worthless", "empty", "suicidal" into softer, warmer, human expressions.
+- Slightly expand extremely blunt phrases into naturally flowing emotional sentences.
+- Keep user's emotional experience authentic, but express it in a gentle and caring tone.
 
-3. **Special Case**:
-    - If the entire input is ONLY noise or random sounds, respond with "NO_MEANINGFUL_CONTENT".
+EXAMPLES:
+- "depressed" → "I've been feeling more sad than usual lately, but trying to stay hopeful."
+- "hopeless" → "It's been hard to stay hopeful recently."
+- "worthless" → "I've been struggling with feeling valuable."
+- "empty" → "I'm feeling a little disconnected lately."
+- "suicidal" → "I've been overwhelmed by tough emotions recently."
 
-Be gentle — assume users are trying to connect, even if messy.  
-When in doubt, prefer preserving the conversation, unless severe risk is clearly detected."
+3. RULES:
+- **Keep first person perspective ("I", "me", "my").**
+- **Do NOT talk to the user or comment back.**
+- **Do NOT change the meaning.**
+- **Do NOT fabricate new emotions.**
+- **Keep it sounding warm, safe, and human.**
+
+4. CRISIS DETECTION:
+- If imminent self-harm risk is detected, respond ONLY with "SEVERE_FLAG".
+
+5. SPECIAL CASE:
+- If no emotional content, respond with "NO_MEANINGFUL_CONTENT".
+
+When in doubt, make the emotional sharing feel slightly warmer and more human.
+
 `.trim(),
       },
       {
