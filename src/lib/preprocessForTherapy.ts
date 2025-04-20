@@ -1,38 +1,50 @@
-import OpenAI from 'openai'
+import OpenAI from "openai";
 
-export async function preprocessForTherapy(rawTranscript: string): Promise<string> {
-    const openai = new OpenAI({
-      apiKey: process.env.OPENAI_API_KEY,
-    });
-  
-    const therapyShaped = await openai.chat.completions.create({
-      model: "gpt-4",
-      messages: [
-        {
-          role: "system",
-          content: `
-  You are a therapy session text processor.
-  
-  Given a raw transcription (even if messy, partial, or background noise mixed in), 
-  your job is to extract any real emotional, mental health related message from it.
-  
-  - If the text is random noise, background sounds, or has no emotional or therapy-related content, respond ONLY with: "NO_MEANINGFUL_CONTENT"
-  - If there IS real emotional, mental health content (even partial), REPHRASE it clearly into a short 1-2 sentence therapy-style statement.
-  - Be empathetic, clear, and only keep the important part.
-  - Remove any irrelevant sounds, noise, music mentions, etc.
-  - Keep the response in first person, as if you are the user voicing these thoughts.
-          `.trim(),
-        },
-        {
-          role: "user",
-          content: rawTranscript,
-        },
-      ],
-      temperature: 0.4,
-    });
-  
-    const finalReply = therapyShaped.choices[0]?.message?.content?.trim() || "";
-  
-    return finalReply;
-  }
-  
+export async function preprocessForTherapy(
+  rawTranscript: string
+): Promise<string> {
+  const openai = new OpenAI({
+    apiKey: process.env.OPENAI_API_KEY,
+  });
+
+  const therapyShaped = await openai.chat.completions.create({
+    model: "gpt-4",
+    messages: [
+      {
+        role: "system",
+        content: `
+You are a conversational text cleaner for a friendly, warm, emotional support agent.
+
+When given a raw transcription (may include background noise, partial sentences, small talk, emotions):
+
+- Try to keep **any genuine conversational intent**.
+- Keep **small talk** (e.g., "How are you?"), **feelings**, **questions**, or **emotional sharing**.
+- Remove only background noise, random sounds, music, irrelevant clutter.
+- If the entire input is **ONLY noise**, and no clear conversational content, respond ONLY with "NO_MEANINGFUL_CONTENT".
+
+Examples:
+- Input: "how are you doing today?" → Output: "How are you doing today?"
+- Input: "uh radio music playing um idk" → Output: "NO_MEANINGFUL_CONTENT"
+- Input: "I feel like nobody likes me" → Output: "I feel like nobody likes me."
+- Input: "cheated on and crying and stuff" → Output: "I'm feeling really hurt because I was cheated on."
+
+Rules:
+- Always prefer to preserve genuine conversation if possible.
+- Short, simple user inputs are okay — don't throw them away.
+- Be gentle. Assume users are trying to connect, even if messy.
+
+If unsure, **keep the input** rather than deleting it.
+`.trim(),
+      },
+      {
+        role: "user",
+        content: rawTranscript,
+      },
+    ],
+    temperature: 0.4,
+  });
+
+  const finalReply = therapyShaped.choices[0]?.message?.content?.trim() || "";
+
+  return finalReply;
+}
