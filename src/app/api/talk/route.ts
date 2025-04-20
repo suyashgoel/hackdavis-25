@@ -13,7 +13,7 @@ import { moderateAgent } from "@/lib/moderateAgent";
 import { mildAgent } from "@/lib/mildAgent";
 
 export async function POST(request: Request) {
-  try {2
+  try {
     const CartesiaKey = process.env.CARTESIA_API_KEY;
     const openai = new OpenAI({
       apiKey: process.env.OPENAI_API_KEY,
