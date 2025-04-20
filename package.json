@@ -10,6 +10,7 @@
   },
   "dependencies": {
     "@cartesia/cartesia-js": "^2.2.0",
+    "lottie-react": "^2.4.1",
     "next": "15.3.1",
     "openai": "^4.95.1",
     "react": "^19.0.0",
