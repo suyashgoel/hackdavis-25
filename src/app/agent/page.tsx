@@ -2,9 +2,8 @@
 import { useState, useRef, useEffect } from "react";
 import { VoiceChatButton } from "../components/VoiceChatButton";
 import Navbar from "../components/Navbar";
-import Spline from '@splinetool/react-spline';
+import Spline from "@splinetool/react-spline";
 import { Search } from "lucide-react";
-
 
 export default function Home() {
   const [isRecording, setIsRecording] = useState(false);
@@ -17,9 +16,8 @@ export default function Home() {
   const [sessionHistory, setSessionHistory] = useState<
     { role: "user" | "assistant"; content: string }[]
   >([]);
-  const [locationInput, setLocationInput] = useState('');
+  const [locationInput, setLocationInput] = useState("");
   const [locationSubmitted, setLocationSubmitted] = useState(false);
-
 
   const mediaRecorderRef = useRef<MediaRecorder | null>(null);
   const audioChunksRef = useRef<Blob[]>([]);
@@ -444,23 +442,23 @@ export default function Home() {
       formData.append("file", audioBlob, "recording.webm");
       formData.append("sessionHistory", JSON.stringify(sessionHistory)); // ✅ use real full sessionHistory
       formData.append("location", locationInput);
-  
+
       console.log("Sending audio to server...");
       const response = await fetch("/api/talk", {
         method: "POST",
         body: formData,
       });
-  
+
       if (!response.ok || !response.body) {
         console.error("Failed to get response, status:", response.status);
         return;
       }
-  
+
       if (response.headers.get("X-End-Session") === "true") {
         console.log("Server ended session.");
         endConversation();
       }
-  
+
       // ✅ Step 2: Get full real session history from backend
       const updatedSessionBase64 = response.headers.get("X-Session-History");
       if (updatedSessionBase64) {
@@ -468,29 +466,31 @@ export default function Home() {
         const updatedSession = JSON.parse(updatedSessionJson);
         setSessionHistory(updatedSession); // 🔥 true updated one
       }
-  
+
       // ✅ Step 3: Stream and play audio
       const reader = response.body.getReader();
       const mediaSource = new MediaSource();
       const audioUrl = URL.createObjectURL(mediaSource);
       const audio = new Audio(audioUrl);
-  
+
       let sourceBuffer: SourceBuffer | null = null;
-  
+
       mediaSource.addEventListener("sourceopen", async () => {
         try {
           sourceBuffer = mediaSource.addSourceBuffer("audio/mpeg");
-  
+
           const appendBuffer = async (chunk: Uint8Array) => {
             if (!sourceBuffer) return;
             if (sourceBuffer.updating) {
               await new Promise((resolve) =>
-                sourceBuffer!.addEventListener("updateend", resolve, { once: true })
+                sourceBuffer!.addEventListener("updateend", resolve, {
+                  once: true,
+                })
               );
             }
             sourceBuffer.appendBuffer(chunk);
           };
-  
+
           const processChunk = async () => {
             const { done, value } = await reader.read();
             if (done) {
@@ -512,10 +512,11 @@ export default function Home() {
               if (audio.paused) {
                 await audio.play();
               }
+              processChunk();
+            }
+
             processChunk();
           };
-  
-          processChunk();
         } catch (err) {
           console.error("Error during audio stream:", err);
         }
@@ -563,30 +564,30 @@ export default function Home() {
   return (
     <div className="relative flex flex-col items-center justify-center min-h-screen">
       <Navbar />
-      
-      {/* Spline background */}
+
+      {/* Spline background TODO
       <div className="absolute inset-0 z-0">
         <Spline scene="/spline/scene.splinecode" />
-      </div>
-      
+      </div> */}
+
       <img
         src="/bckgrndgrad.png"
         alt="background gradient"
         className="absolute bottom-0 z-0 w-full object-cover"
       />
-      
-      {/* <img
+
+      { <img
         src="/Numaframe1.png"
         alt="Numaframe"
         className="z-10 mb-4 w-140 object-contain"
-      /> */}
-  
+      />}
+
       {!isRecording && !isProcessing && !locationSubmitted && (
         <div className="z-10 text-black text-4xl font-inter mb-6">
           Hi, how can I help you today?
         </div>
       )}
-  
+
       <div className="z-10">
         {!isRecording && !isProcessing && !locationSubmitted && (
           <button
@@ -596,7 +597,7 @@ export default function Home() {
             Start Conversation
           </button>
         )}
-  
+
         {(isRecording || isProcessing) && !locationSubmitted && (
           <div className="flex flex-col items-center space-y-2">
             <form
@@ -618,16 +619,17 @@ export default function Home() {
                 size={20}
               />
             </form>
-  
+
             <p className="text-gray-600 text-sm">
-              Before we get started, would you be comfortable sharing your location? 
+              Before we get started, would you be comfortable sharing your
+              location?
             </p>
             <p className="text-gray-600 text-sm">
               That way, I can offer support and resources that are local to you.
             </p>
           </div>
         )}
-  
+
         {(isRecording || isProcessing) && locationSubmitted && (
           <button
             onClick={endConversation}
@@ -639,5 +641,5 @@ export default function Home() {
         )}
       </div>
     </div>
-  );  
+  );
 }
