@@ -2,27 +2,37 @@ import OpenAI from "openai";
 
 const openai = new OpenAI({ apiKey: process.env.OPENAI_API_KEY });
 
-export async function moderateAgent(locationInfo: string) {
-  if (locationInfo) {
-    // 1. Refine search query
-    const refinedQueryCompletion = await openai.chat.completions.create({
+export type TherapistResult = {
+  name: string;
+  location: string;
+  contact: string;
+  website: string;
+};
+
+export async function moderateAgent(locationInfo: string): Promise<string> {
+  if (!locationInfo) return "";
+
+  try {
+    // 1. Refine search query broadly
+    const refineCompletion = await openai.chat.completions.create({
       model: "gpt-4o",
-      response_format: { type: "json_object" },
       messages: [
         {
           role: "system",
           content: `
-You specialize in creating local therapist search queries.
+You specialize in generating effective search queries to find therapists, therapy centers, and counseling services.
 
-Given a user's situation and location, generate a short search query.
+Given a user's emotional situation and location:
 
-Respond ONLY with a JSON object like:
+- Create a broad but relevant search query that targets therapy resources nearby.
+- Prioritize PsychologyToday, TherapyDen, Therapist.com, Rula, official clinic websites.
+- Ignore Yelp, Healthgrades, generic directories.
+
+Respond ONLY with a JSON like:
 
 {
-  "query": "best anxiety therapists near San Ramon CA"
+  "query": "therapists and counseling centers near San Ramon CA"
 }
-
-Respond ONLY with JSON — no extra commentary.
 `,
         },
         {
@@ -32,14 +42,14 @@ Respond ONLY with JSON — no extra commentary.
       ],
     });
 
-    const refinedQueryJson =
-      refinedQueryCompletion.choices[0].message.content ?? "{}";
-    const { query: refinedQuery } = JSON.parse(refinedQueryJson);
+    const refineRaw = refineCompletion.choices[0].message.content ?? "{}";
+    const refineJson = refineRaw.replace(/```json|```/g, "").trim();
+    const { query: refinedQuery } = JSON.parse(refineJson);
 
     console.log("Refined query:", refinedQuery);
 
     // 2. Tavily search
-    const searchResults = await fetch("https://api.tavily.com/search", {
+    const searchResponse = await fetch("https://api.tavily.com/search", {
       method: "POST",
       headers: {
         Authorization: `Bearer ${process.env.TAVILY_API_KEY}`,
@@ -47,34 +57,56 @@ Respond ONLY with JSON — no extra commentary.
       },
       body: JSON.stringify({
         query: refinedQuery,
-        num_results: 5,
+        num_results: 10,
       }),
-    }).then((res) => res.json());
+    });
+
+    const searchResults = await searchResponse.json();
 
     console.log("Search results:", searchResults);
 
-    // 3. Summarize into structured therapist results
+    if (!searchResults.results || searchResults.results.length === 0) {
+      return "";
+    }
+
+    // 3. Summarize freely, no JSON restriction
     const summaryCompletion = await openai.chat.completions.create({
       model: "gpt-4o",
-      response_format: { type: "json_object" }, // you can also use this for the summary
       messages: [
         {
           role: "system",
           content: `
-You act as a structured information extractor.
+You are an information extractor focused on finding helpful, real therapy-related resources.
 
-Given therapist search results, extract up to 5 local centers or therapists into a JSON array with this format:
+Given a list of search results (titles, snippets, and URLs):
 
-[
-  {
-    "name": therapist or center name,
-    "location": city and state,
-    "contact": phone number if available (otherwise blank),
-    "website": website if available (otherwise blank)
-  }
-]
+- Extract 5 to 8 helpful resources that are either:
+    - Individual therapists
+    - Therapy centers
+    - Counseling services
+    - Wellness clinics
+    - Mental health organizations offering direct therapy services
 
-Respond ONLY with a JSON array. No markdown, no extra commentary.
+- For each resource, write:
+
+    Name: [name]
+    Location: [city, state if visible]
+    Contact: [phone/email if available, otherwise blank]
+    Website: [official or most direct link available]
+
+- It is acceptable to include resources from websites like PsychologyToday, TherapyDen, Therapist.com, Rula, or Yelp IF they clearly point to a specific therapist, center, or clinic.
+
+- SKIP general listing pages, directory search results, top-10 articles, or generic links without clear contact or specific entities.
+
+- If the link is a Yelp or directory page, only include it if it is about a **specific therapist, center, or clinic**.
+
+- Always show website links as plain URLs (not in markdown format, no [text](link)).
+
+- Separate each resource using "---".
+
+- Keep entries short, clean, and directly helpful.
+
+ONLY list the extracted resources. No commentary, no extra explanations.
 `,
         },
         {
@@ -86,16 +118,12 @@ Respond ONLY with a JSON array. No markdown, no extra commentary.
       ],
     });
 
-    const cleanJsonReply = summaryCompletion.choices[0].message.content;
+    const cleanedSummary =
+      summaryCompletion.choices[0].message.content?.trim() ?? "";
 
-    try {
-      const cleaned =
-        cleanJsonReply?.replace(/```json|```/g, "").trim() ?? "[]";
-      const parsedJson = JSON.parse(cleaned);
-      return parsedJson;
-    } catch (e) {
-      console.error("Failed to parse JSON from OpenAI:", e);
-      return [];
-    }
+    return cleanedSummary;
+  } catch (error) {
+    console.error("moderateAgent error:", error);
+    return "";
   }
 }
