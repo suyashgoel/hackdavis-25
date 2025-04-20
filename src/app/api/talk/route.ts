@@ -28,6 +28,7 @@ export async function POST(request: Request) {
 
     const formData = await request.formData();
     const audioFile = formData.get("file");
+    const location = formData.get("location");
 
     if (!audioFile || !(audioFile instanceof Blob)) {
       return NextResponse.json(
@@ -59,6 +60,56 @@ export async function POST(request: Request) {
     }
 
     const cleanedUserInput = await preprocessForTherapy(userInput);
+
+// crisis mode handling
+if (cleanedUserInput === "SEVERE_FLAG") {
+  console.log("[SEVERE_FLAG detected] Initiating crisis flow...");
+
+  if (!location || typeof location !== "string") {
+    return NextResponse.json(
+      { error: "No location provided" },
+      { status: 400 }
+    );
+  }
+
+  // 🧠 Get severe agent resources using the location
+  const crisisResources = await severeAgent(location || "USA");
+  console.log("[Crisis Resources Generated]", crisisResources);
+
+  // 🧠 Now synthesize both crisis resources and goodbye message
+  const crisisAudioBuffer = await synthesizeAudio(crisisResources);
+  const goodbyePrompt =
+    "Thank you for trusting us. Please reach out to the resources shared with you. Wishing you strength.";
+  const goodbyeAudioBuffer = await synthesizeAudio(goodbyePrompt);
+
+  // 🔥 Convert ArrayBuffer to Uint8Array
+  const crisisAudio = new Uint8Array(crisisAudioBuffer);
+  const goodbyeAudio = new Uint8Array(goodbyeAudioBuffer);
+
+  // 🔥 Combine both audios into one
+  const combinedAudio = new Uint8Array(crisisAudio.length + goodbyeAudio.length);
+  combinedAudio.set(crisisAudio, 0);
+  combinedAudio.set(goodbyeAudio, crisisAudio.length);
+
+  // 🧠 Create a ReadableStream
+  const stream = new ReadableStream({
+    start(controller) {
+      controller.enqueue(combinedAudio);
+      controller.close();
+    },
+  });
+
+  // 🔥 Return response with end session flag
+  return new Response(stream, {
+    status: 200,
+    headers: {
+      "Content-Type": "audio/mpeg",
+      "X-End-Session": "true", // 🚀 tell frontend to kill conversation after playing
+    },
+  });
+}
+
+
     console.log("Transcribed User Input:", cleanedUserInput);
 
     const systemPrompt = `
@@ -130,10 +181,10 @@ You trust the user's strength unless directly told otherwise.
           model: "gpt-4",
           messages,
           stream: true,
-          temperature: 0.8,  // a bit more creative, softer, less robotic
-          presence_penalty: 0.5,  // encourage GPT to "stick around" in the conversation
+          temperature: 0.8, // a bit more creative, softer, less robotic
+          presence_penalty: 0.5, // encourage GPT to "stick around" in the conversation
         });
-        
+
         let buffer = "";
 
         for await (const chunk of completionStream) {
