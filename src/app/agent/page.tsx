@@ -2,6 +2,8 @@
 import { useState, useRef, useEffect } from "react";
 import { VoiceChatButton } from "../components/VoiceChatButton";
 import Navbar from "../components/Navbar";
+import { Search } from "lucide-react";
+
 
 export default function Home() {
   const [isRecording, setIsRecording] = useState(false);
@@ -600,42 +602,58 @@ export default function Home() {
         alt="Numaframe"
         className="z-10 mb-4 w-140 object-contain"
       />
-      <div className="z-10 text-black text-4xl font-inter mb-6">
-        Hi, how can I help you today?
-      </div>
-
+  
+      {!isRecording && !isProcessing && !locationSubmitted && (
+        <div className="z-10 text-black text-4xl font-inter mb-6">
+          Hi, how can I help you today?
+        </div>
+      )}
+  
       <div className="z-10">
         {!isRecording && !isProcessing && !locationSubmitted && (
           <button
             onClick={startConversation}
-            className="bg-blue-500 hover:bg-blue-600 text-white font-medium py-2 px-6 rounded-full focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-opacity-50 transition"
+            className="bg-[#DAC5F6] text-[#3A3A3A] font-inter text-lg py-2 px-6 w-[300px] rounded-full border-1 border-[#CAA9F4] focus:outline-none transition"
           >
             Start Conversation
           </button>
         )}
-
+  
         {(isRecording || isProcessing) && !locationSubmitted && (
-          <div className="flex space-x-2">
-            <input
-              type="text"
-              value={locationInput}
-              onChange={(e) => setLocationInput(e.target.value)}
-              placeholder="Enter location"
-              className="border rounded px-3 py-2"
-            />
-            <button
-              onClick={() => setLocationSubmitted(true)}
-              className="bg-blue-500 hover:bg-blue-600 text-white font-medium px-4 py-2 rounded"
+          <div className="flex flex-col items-center space-y-2">
+            <form
+              onSubmit={(e) => {
+                e.preventDefault();
+                setLocationSubmitted(true);
+              }}
+              className="relative w-[570px]"
             >
-              Submit
-            </button>
+              <input
+                type="text"
+                value={locationInput}
+                onChange={(e) => setLocationInput(e.target.value)}
+                placeholder="Enter location"
+                className="bg-[#DAC5F6] text-[#3A3A3A] font-inter text-lg py-2 px-6 pr-12 w-[570px] rounded-full border border-[#CAA9F4] focus:outline-none transition"
+              />
+              <Search
+                className="absolute right-4 top-1/2 transform -translate-y-1/2 text-gray-400 pointer-events-none"
+                size={20}
+              />
+            </form>
+  
+            <p className="text-gray-600 text-sm">
+              Before we get started, would you be comfortable sharing your location? 
+            </p>
+            <p className="text-gray-600 text-sm">
+              That way, I can offer support and resources that are local to you.
+            </p>
           </div>
         )}
-
+  
         {(isRecording || isProcessing) && locationSubmitted && (
           <button
             onClick={endConversation}
-            className="bg-red-500 hover:bg-red-600 text-white font-medium py-2 px-6 rounded-full focus:outline-none focus:ring-2 focus:ring-red-500 focus:ring-opacity-50 transition"
+            className="bg-[#DAC5F6] text-[#3A3A3A] font-inter text-lg py-2 px-6 w-[300px] rounded-full border-1 border-[#CAA9F4] focus:outline-none transition"
             disabled={isProcessing}
           >
             End Conversation
@@ -643,5 +661,5 @@ export default function Home() {
         )}
       </div>
     </div>
-  );
+  );  
 }
